@@ -244,13 +244,14 @@ INITIAL_PACKAGES = [
     'ttf-linux-libertine',
     'ttf-dejavu',
     'ttf-liberation',
+    'powertop',
     'xterm',
     'tint2',
     'gnucash',
     'anki',
     'meld',
-    'python2-nautilus',  # needed for tortoisehg extension
-    'python2-pygments',  # needed for tortoisehg syntax highlighting
+    'python2-nautilus', # needed for tortoisehg extension
+    'python2-pygments', # needed for tortoisehg syntax highlighting
 ]
 
 # Backup the unmodified pacman.conf:
@@ -329,7 +330,7 @@ run(f'echo {HOSTNAME} > /etc/hostname')
 run(f'echo KEYMAP={KEYMAP} > /etc/vconsole.conf')
 
 # Our localtime:
-run(f'ln -sf {LOCALTIME} /etc/localtime')
+run(f'ln -sf ../usr/share/zoneinfo/{LOCALTIME} /etc/localtime')
 
 # Configure updating the hwclock, creating /etc/adjtime:
 run('hwclock --systohc')
@@ -354,7 +355,7 @@ if VIRTUALBOX:
     run('cp /boot/EFI/GRUB/grubx64.efi /boot/EFI/BOOT/BOOTX64.EFI')
 
 # Disable wayland in GDM:
-run(f"sed -i '/WaylandEnable=false/s/^# //g' /etc/gdm/custom.conf")
+run(f"sed -i '/WaylandEnable=false/s/^#//g' /etc/gdm/custom.conf")
 
 # Enable gdm and networkmanager systemd units:
 run('systemctl enable gdm.service')
