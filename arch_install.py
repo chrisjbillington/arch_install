@@ -77,12 +77,12 @@ def yn_choice(message, default='y'):
 
 
 def set_ps1_and_get_prompt():
-    shell.expect_exact('#')  # Wait for prompt
+    shell.expect_exact(['# ', '$ '])  # Wait for prompt
     # Set PS1 and get prompt:
     RED = r"\[\e[1;31m\]"
     NORMAL = r"\[\e[0m\]"
     shell.sendline(fr'export PS1="{RED}$PS1{NORMAL}"')
-    shell.expect_exact('#')
+    shell.expect_exact(['# ', '$ '])  # Wait for prompt
     return (shell.before + shell.after).split(b'\n')[-1]
 
 
@@ -243,11 +243,14 @@ INITIAL_PACKAGES = [
     'noto-fonts-emoji',
     'ttf-linux-libertine',
     'ttf-dejavu',
+    'ttf-liberation',
     'xterm',
     'tint2',
     'gnucash',
     'anki',
     'meld',
+    'python2-nautilus',  # needed for tortoisehg extension
+    'python2-pygments',  # needed for tortoisehg syntax highlighting
 ]
 
 # Backup the unmodified pacman.conf:
@@ -332,7 +335,7 @@ run(f'ln -sf {LOCALTIME} /etc/localtime')
 run('hwclock --systohc')
 
 # Our locale:
-run(f"sed -i '/{LOCALE}/s/^# //g' etc/locale.gen")
+run(f"sed -i '/{LOCALE}/s/^#//g' etc/locale.gen")
 run('locale-gen')
 
 # Our LANG variable:
@@ -382,7 +385,7 @@ run('hg commit -u root -m "Initial custom configuration" -R /etc')
 run('curl -o /tmp/sublimehq-pub.gpg https://download.sublimetext.com/sublimehq-pub.gpg')
 run('pacman-key --add /tmp/sublimehq-pub.gpg')
 run('pacman-key --lsign-key 8A8F901A')
-SUBLIME_SERVER = 'https://download.sublimetext.com/arch/stable/x86_64'
+SUBLIME_SERVER = 'https://download.sublimetext.com/arch/dev/x86_64'
 run(f'echo -e "\n[sublime-text]\nServer = {SUBLIME_SERVER}" >> /etc/pacman.conf')
 
 # Commit that change to pacman.conf:
@@ -390,14 +393,18 @@ run('hg commit -u root -m "Add sublime text server" -R /etc')
 
 # Update pacman db and install sublime text
 run('pacman -Syy', timeout=120)
-run('pacman -S sublime-text', timeout=None)
+run('pacman -S --noconfirm sublime-text', timeout=None)
 
 # Install yay and AUR packages. Switch to user since makepkg can't be run as root:
 shell.sendline(f'su {USERNAME}')
 set_ps1_and_get_prompt()
 
 run('git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=120)
-run('cd yay && makepkg -si --noconfirm && cd -', timeout=None)
+run(
+    'cd /tmp/yay && makepkg -si --noconfirm && cd -',
+    expect=f"[sudo] password for {USERNAME}:",
+)
+run(PASSWORD, timeout=None)
 
 AUR_PACKAGES = [
     'tortoisehg',
@@ -410,7 +417,7 @@ AUR_PACKAGES = [
 ]
 
 # install the above AUR packages:
-run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}')
+run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}', timeout=None)
 
 
 # # run settings, set all the settings:
@@ -442,10 +449,15 @@ run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}')
 # # system monitor
 
 
-# Quit chroot, umount everything, and reboot:
+# Quit user session:
 run('exit', expect='#')
+# Quit chroot:
+run('exit', expect='#')
+# Unmount:
 run('umount -R /mnt', expect='#')
+# Exit bash session:
 shell.sendeof()
 shell.expect(pexpect.EOF)
+
 input("Installation complete. Remove installation media and press enter to reboot.")
 os.system("reboot")
