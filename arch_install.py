@@ -376,8 +376,9 @@ run('EDITOR="cp /tmp/sudoers.new" visudo')
 # Lock the root acount:
 run('passwd -l root')
 
-# Enable network time:
-run('timedatectl set-ntp true')
+# Enable network time. This is equivalent to 'timedatectl set-ntp true', except doesn't
+# start the service immediately, which doesn't work within the chroot:
+run('systemctl enable systemd-timesyncd.service')
 
 # Commit all our custom configuration
 for path in NEW_FILES:
