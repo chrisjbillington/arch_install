@@ -251,8 +251,9 @@ INITIAL_PACKAGES = [
     'gnucash',
     'anki',
     'meld',
-    'python2-nautilus', # needed for tortoisehg extension
-    'python2-pygments', # needed for tortoisehg syntax highlighting
+    'firefox',
+    'python2-nautilus',  # needed for tortoisehg extension
+    'python2-pygments',  # needed for tortoisehg syntax highlighting
 ]
 
 # Backup the unmodified pacman.conf:
@@ -428,36 +429,6 @@ AUR_PACKAGES = [
 # install the above AUR packages:
 run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}', timeout=None)
 
-
-# # run settings, set all the settings:
-# #Displays:
-# # Night light on
-# # Keyboard:
-# #    volume up: ctrl up
-# #    volume down: ctrl down
-# #    play/pause: ctrl enter
-# #    gnome-terminal: ctrl alt t
-# # Mouse and touchpad:
-# #    natural scrolling off
-# #    tap to click on
-
-# # run gnome tweak tool, set all the settings.
-# # Extensions -> enable user themes, then restart gnome-shell with alt-f2 r and restart tweak tool
-# # appearance -> themes -> yaru for all
-# # extensions -> alternatetab
-# # fonts -> ubuntu regular 11, ubuntu regular 11, ubuntu mono regular 13, ubuntu medium 11
-# # antialising -> subpixel
-# # keyboard and mouse -> compose key -> right alt
-# #   additional layout options -> capslock -> capslock is additional escape
-# # top bar -> battery percetage, clock -> weekday and date
-# # window titlebars -> buttons -> maximise, minimise
-# # windows -> don't attach modal dialogs, center new windows
-# # workspaces -> static, workspaces span displays
-
-# # Gnome shell extensions:
-# # system monitor
-
-
 # Quit user session:
 run('exit', expect='#')
 # Quit chroot:
@@ -470,3 +441,36 @@ shell.expect(pexpect.EOF)
 
 input("Installation complete. Remove installation media and press enter to reboot.")
 os.system("reboot")
+
+
+# Things to be configured in the GUI:
+
+# run settings, set all the settings:
+#Displays:
+# Night light on
+# Keyboard:
+#    volume up: ctrl up
+#    volume down: ctrl down
+#    play/pause: ctrl enter
+#    gnome-terminal: ctrl alt t
+# Mouse and touchpad:
+#    natural scrolling off
+#    tap to click on
+
+# run gnome tweak tool, set all the settings.
+# Extensions -> enable user themes,
+#     then restart gnome-shell with alt-f2 r and restart tweak tool
+# appearance -> themes -> yaru for all
+# extensions -> alternatetab
+# fonts ->
+#    ubuntu regular 11, ubuntu regular 11, ubuntu mono regular 13, ubuntu medium 11
+# antialising -> subpixel
+# keyboard and mouse -> compose key -> right alt
+#   additional layout options -> capslock -> capslock is additional escape
+# top bar -> battery percetage, clock -> weekday and date
+# window titlebars -> buttons -> maximise, minimise
+# windows -> don't attach modal dialogs, center new windows
+# workspaces -> static, workspaces span displays
+
+# Gnome shell extensions:
+# system monitor
