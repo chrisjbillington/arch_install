@@ -14,6 +14,7 @@
 ######################################################################
 #
 # Configuration
+# =============
 #
 # Username
 USERNAME = 'bilbo'
@@ -374,9 +375,16 @@ run('EDITOR="cp /tmp/sudoers.new" visudo')
 # Lock the root acount:
 run('passwd -l root')
 
+# Enable network time:
+run('timedatectl set-ntp true')
+
 # Commit all our custom configuration
 for path in NEW_FILES:
     run(f'hg add {path}')
+for path in ORIG_FILES:
+    if os.path.isdir(path):
+        # Add any new files under the directory:
+        run(f'hg add {path}/*')
 run('hg commit -u root -m "Initial custom configuration" -R /etc')
 
 
