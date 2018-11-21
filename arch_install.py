@@ -48,39 +48,57 @@ import re
 
 
 def _run(cmd):
+    """Print and run a command, and quit if it fails"""
     print(f'# {cmd}')
     if os.system(cmd):
         sys.exit(1)
+
+
+def clean_terminal_output(text):
+    r"""Turn the output of the 'script' command into a readable log file by: Removing
+    ANSI escape codes, making all newlines \n, and erasing text preceding backspace
+    characters \b and carriage returns \r appropriately to get the final text as would
+    be seen by the user on the terminal."""
+
+    # Change any number of \r followed by a \n to a \n:
+    newlines = re.compile(r'\r\r*?\n')
+    text = newlines.sub('\n', text)
+
+    # Delete data in each line preceding a carriage return \r':
+    text = '\n'.join(line.split('\r')[-1] for line in text.split('\n'))
+
+    # Remove ANSI escape sequences:
+    ansi_escape = re.compile(r'\x1b\[[0-?]*[ -/]*[@-~]')
+    text = ansi_escape.sub('', text)
+
+    # Remove backspaces \b and characters preceding them on a per-line basis:
+    lines = []
+    backspaces = re.compile('^\x08|[^\x08]\x08')
+    for line in text.split('\n'):
+        while '\b' in line:
+            line = backspaces.sub('', line)
+        lines.append(line)
+    text = '\n'.join(lines)
+
+    return text
 
 
 if '_' not in sys.argv:
     # Run this script as a child process, but log its output to a file:
     rc = os.system(f'script -e -c \'python {" ".join(sys.argv)} _\' arch_install.log')
 
-    # Clean up the log file a bit:
+    # Turn the output of the 'script' command into a readable log file:
     with open('arch_install.log', 'rb') as f:
-        log = f.read()
-
-    # Change newlines to all \n:
-    log = log.replace(b'\r\n', b'\n')
-
-    # Remove ANSI escape sequences:
-    ansi_escape = re.compile(rb'\x1B\[.*?m')
-    log = ansi_escape.sub(b'', log)
-
-    # Delete data in each line preceding a carriage return ('\r'):
-    log = b'\n'.join(line.split(b'\r')[-1] for line in log.split(b'\n'))
-
-    # Write out the cleaned log file:
-    with open('arch_install', 'wb') as f:
-        f.write(log)
+        log = f.read().decode('utf8')
+    log = clean_terminal_output(log)
+    with open('arch_install.log', 'wb') as f:
+        f.write(log.encode('utf8'))
 
     if rc:
         # Quit if the install was not successful
         sys.exit(1)
 
     # If install was successful, add the log file and install script to version control:
-    _run('pacman -S --noconfirm mercurial')
     _run('cp arch_install.log /mnt/etc')
     _run('hg add /mnt/etc/arch_install.log')
     _run(f'cp {sys.argv[0]} /mnt/etc/arch_install.py')
@@ -132,7 +150,8 @@ def set_ps1_and_get_prompt():
     RED = r"\[\e[1;31m\]"
     NORMAL = r"\[\e[0m\]"
     shell.sendline(fr'export PS1="{RED}$PS1{NORMAL}"')
-    shell.expect_exact(['# ', '$ '])  # Wait for prompt
+    shell.expect_exact('$') # Skip over the $ in $PS1
+    shell.expect_exact(['# ', '$ ']) # Wait for prompt
     return (shell.before + shell.after).split(b'\n')[-1]
 
 
@@ -266,6 +285,8 @@ run('pacman -Syy', timeout=120)
 # Colour and overall progress:
 run("sed -i '/TotalDownload/s/^#//g' /etc/pacman.conf")
 run("sed -i '/Color/s/^#//g' /etc/pacman.conf")
+# We'll need hg after we leave the chroot
+run('pacman -S --noconfirm mercurial', timeout=None)
 run('pacstrap /mnt base base-devel', timeout=None)
 
 # Copy original pacman mirror list, it will be saved to version control for posterity:
