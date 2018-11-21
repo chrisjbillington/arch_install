@@ -4,11 +4,11 @@
 # Instructions
 # ============
 #
-# Boot ArchISO
-# set keymap with loadkeys if necessary
-# wget this script
-# Edit this script to set config as described below
-# run python arch_install.py
+# - Boot ArchISO
+# - Set keymap with loadkeys if necessary
+# - wget this script
+# - Edit this script to set config as described below
+# - Run python arch_install.py
 #
 #
 ######################################################################
@@ -44,6 +44,55 @@ import os
 from subprocess import getoutput
 import time
 from getpass import getpass
+import re
+
+
+def _run(cmd):
+    print(f'# {cmd}')
+    if os.system(cmd):
+        sys.exit(1)
+
+
+if '_' not in sys.argv:
+    # Run this script as a child process, but log its output to a file:
+    rc = os.system(f'script -e -c \'python {" ".join(sys.argv)} _\' arch_install.log')
+
+    # Clean up the log file a bit:
+    with open('arch_install.log', 'rb') as f:
+        log = f.read()
+
+    # Change newlines to all \n:
+    log = log.replace(b'\r\n', b'\n')
+
+    # Remove ANSI escape sequences:
+    ansi_escape = re.compile(rb'\x1B\[.*?m')
+    log = ansi_escape.sub(b'', log)
+
+    # Delete data in each line preceding a carriage return ('\r'):
+    log = b'\n'.join(line.split(b'\r')[-1] for line in log.split(b'\n'))
+
+    # Write out the cleaned log file:
+    with open('arch_install', 'wb') as f:
+        f.write(log)
+
+    if rc:
+        # Quit if the install was not successful
+        sys.exit(1)
+
+    # If install was successful, add the log file and install script to version control:
+    _run('pacman -S --noconfirm mercurial')
+    _run('cp arch_install.log /mnt/etc')
+    _run('hg add /mnt/etc/arch_install.log')
+    _run(f'cp {sys.argv[0]} /mnt/etc/arch_install.py')
+    _run('hg add /mnt/etc/arch_install.py')
+    _run("hg commit -u root -m 'Added install script and log file' -R /mnt/etc/")
+
+    # Unmount:
+    _run('umount -R /mnt')
+
+    # Print a message and reboot
+    input("Installation complete. Remove installation media and press enter to reboot.")
+    _run("reboot")
 
 
 def errorquit(msg=None):
@@ -87,7 +136,7 @@ def set_ps1_and_get_prompt():
     return (shell.before + shell.after).split(b'\n')[-1]
 
 
-os.system('clear')
+_run('clear')
 
 print(
     f"""Welcome to bilbo's Arch Linux install script! This script will install Arch
@@ -131,7 +180,7 @@ if not PASSWORD or getpass(f"Confirm password for {USERNAME}: ") != PASSWORD:
     sys.exit(1)
 
 print()
-os.system(f'fdisk -l {DISK}')
+_run(f'fdisk -l {DISK}')
 print()
 if not yn_choice(
     f"The details of {DISK} are shown above.\n"
@@ -143,11 +192,11 @@ if not yn_choice(
 
 # Installation begins
 print('Ensuring /mnt does not have a mounted filesystem...')
-os.system('umount -R /mnt > /dev/null')
+os.system('umount -R /mnt')
 print('Getting packages needed for installation...')
 # Sync the package database:
-os.system('pacman -Syy')
-os.system('pacman -S --noconfirm python-pexpect reflector')
+_run('pacman -Syy')
+_run('pacman -S --noconfirm python-pexpect reflector')
 import pexpect
 
 ts = os.get_terminal_size()
@@ -432,22 +481,28 @@ run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}', timeout=None)
 
 # Quit user session:
 run('exit', expect='#')
+
 # Quit chroot:
 run('exit', expect='#')
-# Unmount:
-run('umount -R /mnt', expect='#')
+
 # Exit bash session:
 shell.sendeof()
 shell.expect(pexpect.EOF)
 
-input("Installation complete. Remove installation media and press enter to reboot.")
-os.system("reboot")
+# Add the install log to the mercurial repository. WIll commit after
+# this script exits ()
+print('# End of the part of the install script that can be logged.')
+print('# After this, we process the log file to remove ANSI escape sequences,')
+print('# commit it and this script to the repository in /etc/, unmount and reboot.')
+
+# This script now ends, and its parent process (the little snippet of code at the top of
+# this file) will do the final cleanup.
 
 
-# Things to be configured in the GUI:
+# Notes of other things to be configured in the GUI:
 
 # run settings, set all the settings:
-#Displays:
+# Displays:
 # Night light on
 # Keyboard:
 #    volume up: ctrl up
