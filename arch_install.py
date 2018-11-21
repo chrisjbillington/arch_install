@@ -6,7 +6,8 @@
 #
 # - Boot ArchISO
 # - Set keymap with loadkeys if necessary
-# - wget this script
+# - Connect to wifi with wifi-menu if necessary
+# - wget this script: wget https://somewhere.com/arch_install.py
 # - Edit this script to set config as described below
 # - Run python arch_install.py
 #
