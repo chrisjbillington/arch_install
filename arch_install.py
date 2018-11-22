@@ -269,7 +269,7 @@ for line in partitions:
 run(f'mkfs.fat -F32 {EFI_partition}')
 run(f'mkfs.ext4 {root_partition}', timeout=120)
 
-# # Mount them:
+# Mount them:
 run(f'mount {root_partition} /mnt')
 run('mkdir /mnt/boot')
 run(f'mount {EFI_partition} /mnt/boot')
@@ -287,7 +287,7 @@ run("sed -i '/TotalDownload/s/^#//g' /etc/pacman.conf")
 run("sed -i '/Color/s/^#//g' /etc/pacman.conf")
 # We'll need hg after we leave the chroot
 run('pacman -S --noconfirm mercurial', timeout=None)
-# run('pacstrap /mnt base base-devel', timeout=None)
+run('pacstrap /mnt base base-devel', timeout=None)
 
 # Copy original pacman mirror list, it will be saved to version control for posterity:
 run('cp /var/tmp/mirrorlist.orig /mnt/var/tmp/mirrorlist.orig')
@@ -324,6 +324,7 @@ INITIAL_PACKAGES = [
     'firefox',
     'python2-nautilus',  # needed for tortoisehg extension
     'python2-pygments',  # needed for tortoisehg syntax highlighting
+    'go',  # required by yay
 ]
 
 # Backup the unmodified pacman.conf:
