@@ -11,7 +11,6 @@
 # - Edit this script to set config as described below
 # - Run python arch_install.py
 #
-#
 ######################################################################
 #
 # Configuration
@@ -146,13 +145,13 @@ def yn_choice(message, default='y'):
 
 
 def set_ps1_and_get_prompt():
-    shell.expect_exact(['# ', '$ '])  # Wait for prompt
+    shell.expect_exact(['#', '$'])  # Wait for prompt
     # Set PS1 and get prompt:
     RED = r"\[\e[1;31m\]"
     NORMAL = r"\[\e[0m\]"
     shell.sendline(fr'export PS1="{RED}$PS1{NORMAL}"')
-    shell.expect_exact('$') # Skip over the $ in $PS1
-    shell.expect_exact(['# ', '$ ']) # Wait for prompt
+    shell.expect_exact('$')  # Skip over the $ in $PS1
+    shell.expect_exact(['# ', '$ '])  # Wait for prompt
     return (shell.before + shell.after).split(b'\n')[-1]
 
 
@@ -288,7 +287,7 @@ run("sed -i '/TotalDownload/s/^#//g' /etc/pacman.conf")
 run("sed -i '/Color/s/^#//g' /etc/pacman.conf")
 # We'll need hg after we leave the chroot
 run('pacman -S --noconfirm mercurial', timeout=None)
-run('pacstrap /mnt base base-devel', timeout=None)
+# run('pacstrap /mnt base base-devel', timeout=None)
 
 # Copy original pacman mirror list, it will be saved to version control for posterity:
 run('cp /var/tmp/mirrorlist.orig /mnt/var/tmp/mirrorlist.orig')
@@ -477,29 +476,19 @@ run('hg commit -u root -m "Add sublime text server" -R /etc')
 run('pacman -Syy', timeout=120)
 run('pacman -S --noconfirm sublime-text', timeout=None)
 
-# Install yay and AUR packages. Switch to user since makepkg can't be run as root:
+# Install the AUR helper 'yay'. To build it, switch to user since makepkg can't be run
+# as root:
 shell.sendline(f'su {USERNAME}')
-set_ps1_and_get_prompt()
+root_prompt = PROMPT
+PROMPT = set_ps1_and_get_prompt()
+run(f'git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=120)
+run(f'cd /tmp/yay && makepkg && cd -', timeout=None)
+# Back to root:
+PROMPT = root_prompt
+shell.sendline('exit')
 
-run('git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=120)
-run(
-    'cd /tmp/yay && makepkg -si --noconfirm && cd -',
-    expect=f"[sudo] password for {USERNAME}:",
-)
-run(PASSWORD, timeout=None)
-
-AUR_PACKAGES = [
-    'tortoisehg',
-    'yaru-icon-theme',
-    'yaru-gnome-shell-theme',
-    'yaru-gtk-theme',
-    'yaru-sound-theme',
-    'spotify',
-    'google-chrome',
-]
-
-# install the above AUR packages:
-run(f'yay -S --noconfirm {" ".join(AUR_PACKAGES)}', timeout=None)
+# Install with pacman:
+run(f'pacman -U --noconfirm /tmp/yay/yay-*.pkg.tar.xz', timeout=None)
 
 # Quit user session:
 run('exit', expect='#')
@@ -521,7 +510,18 @@ print('# commit it and this script to the repository in /etc/, unmount and reboo
 # this file) will do the final cleanup.
 
 
-# Notes of other things to be configured in the GUI:
+# Notes of other things to be configured/installed later:
+#
+# Install from AUR:
+# 'tortoisehg',
+# 'yaru-icon-theme',
+# 'yaru-gnome-shell-theme',
+# 'yaru-gtk-theme',
+# 'yaru-sound-theme',
+# 'spotify',
+# 'google-chrome',
+#
+#
 
 # run settings, set all the settings:
 # Displays:
