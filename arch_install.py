@@ -7,7 +7,8 @@
 # - Boot ArchISO
 # - Set keymap with loadkeys if necessary
 # - Connect to wifi with wifi-menu if necessary
-# - wget this script: wget https://somewhere.com/arch_install.py
+# - wget this script:
+#       wget https://bitbucket.org/cbillington/arch_install/raw/default/arch_install.py
 # - Edit this script to set config as described below
 # - Run python arch_install.py
 #
