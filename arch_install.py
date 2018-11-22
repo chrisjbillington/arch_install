@@ -33,10 +33,10 @@ LOCALE = 'en_AU.UTF-8'
 LOCALTIME = 'US/Eastern'
 #
 # Disk to install to. Check disks with 'fdisk -l' or 'lsblk'
-DISK = '/dev/sda'
+DISK = '/dev/nvme0n1'
 #
 # Is the install in a virtualbox?
-VIRTUALBOX = True
+VIRTUALBOX = False
 #
 ######################################################################
 
