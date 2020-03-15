@@ -8,7 +8,7 @@
 # - Set keymap with loadkeys if necessary
 # - Connect to wifi with wifi-menu if necessary
 # - wget this script:
-#       wget https://bitbucket.org/cbillington/arch_install/raw/default/arch_install.py
+#       wget https://github.com/chrisjbillington/arch_install/raw/master/arch_install.py
 # - Edit this script to set config as described below
 # - Run python arch_install.py
 #
@@ -41,8 +41,7 @@ DISKS = '/dev/sda,/dev/sdb,/dev/sdc,/dev/sdd'
 RAID = 5
 #
 # Whether to install as BIOS or UEFI - generally you want UEFI = True unless it's an old
-# system that doesn't support UEFI. If UEFI, will use GPT partition table, otherwise
-# will use MBR.
+# system that doesn't support UEFI. Will use  GPT partition table in either case.
 UEFI = False
 #
 # Is the install in a virtualbox?
