@@ -21,7 +21,7 @@
 USERNAME = 'bilbo'
 #
 # Computer hostname
-HOSTNAME = 'bilbo-arch'
+HOSTNAME = 'bilbo-server'
 #
 # Keymap. To see options, do ls /usr/share/kbd/keymaps/**/*.map.gz
 KEYMAP = 'us'
@@ -30,15 +30,26 @@ KEYMAP = 'us'
 LOCALE = 'en_AU.UTF-8'
 #
 # Localtime - must be a valid subpath within /usr/share/zoneinfo/
-LOCALTIME = 'US/Eastern'
+LOCALTIME = 'Australia/Melbourne'
 #
-# Disk to install to. Check disks with 'fdisk -l' or 'lsblk'
-DISK = '/dev/nvme0n1'
+# Disk(s) to install to. Check disks with 'fdisk -l' or 'lsblk'. Comma-separated list
+# for multiple disks, used for RAID
+DISKS = '/dev/sda,/dev/sdb,/dev/sdc,/dev/sdd'
+#
+# Raid scheme, None or 5 only supported. If 5, DISKS must be a comma-separated list of
+# identically-sized disks.
+RAID = 5
+#
+# Whether to install as BIOS or UEFI - generally you want UEFI = True unless it's an old
+# system that doesn't support UEFI. If UEFI, will use GPT partition table, otherwise
+# will use MBR.
+UEFI = False
 #
 # Is the install in a virtualbox?
 VIRTUALBOX = False
 #
 ######################################################################
+
 
 import sys
 import os
@@ -100,17 +111,15 @@ if '_' not in sys.argv:
         sys.exit(1)
 
     # If install was successful, add the log file and install script to version control:
-    _run('cp arch_install.log /mnt/etc')
-    _run('hg add /mnt/etc/arch_install.log')
-    _run(f'cp {sys.argv[0]} /mnt/etc/arch_install.py')
-    _run('hg add /mnt/etc/arch_install.py')
-    _run("hg commit -u root -m 'Added install script and log file' -R /mnt/etc/")
+    _run('mkdir -p /mnt/var/log/install_log')
+    _run('cp arch_install.log /mnt/var/log/install_log/arch_install.log')
+    _run(f'cp {sys.argv[0]} /mnt/var/log/install_log/arch_install.py')
 
     # Unmount:
     _run('umount -R /mnt')
 
     # Print a message and reboot
-    input("Installation complete. Remove installation media and press enter to reboot.")
+    input("Installation complete. Press enter to reboot.")
     _run("reboot")
 
 
@@ -121,7 +130,9 @@ def errorquit(msg=None):
     sys.exit(1)
 
 
-def run(cmd, expect=None, timeout=5):
+def run(cmd, expect=None, timeout=30):
+    if isinstance(cmd, (list, tuple)):
+        cmd = ' '.join(cmd)
     if expect is None:
         expect = PROMPT
     # Run the command:
@@ -167,7 +178,8 @@ HOSTNAME = {HOSTNAME}
 KEYMAP = {KEYMAP}
 LOCALE = {LOCALE}
 LOCALTIME = {LOCALTIME}
-DISK = {DISK}
+DISKS = {DISKS}
+RAID = {RAID}
 VIRTUALBOX = {VIRTUALBOX}
 
 Configuration can be modified by editing these variables at the top of the file
@@ -178,6 +190,8 @@ containing this script.
 if not yn_choice("Install Arch Linux with the above configuration?"):
     sys.exit(1)
 
+disks = [s.strip() for s in DISKS.split(',')]
+
 # Error checking
 if not LOCALE in open('/etc/locale.gen').read():
     sys.stderr.write(f'Locale {LOCALE} is not listed in /etc/locale.gen.\n')
@@ -185,12 +199,19 @@ if not LOCALE in open('/etc/locale.gen').read():
 if not os.path.isfile(f'/usr/share/zoneinfo/{LOCALTIME}'):
     sys.stderr.write(f'Timezone {LOCALTIME} not present under /usr/share/zoneinfo/.\n')
     sys.exit(1)
-for line in getoutput(f'lsblk -l').splitlines():
-    name, _, _, _, _, type_, *_ = line.split()
-    if f'/dev/{name}' == DISK and type_ == 'disk':
-        break
-else:
-    sys.stderr.write(f'No such disk {DISK}.\n')
+for disk in disks:
+    for line in getoutput(f'lsblk -l').splitlines():
+        name, _, _, _, _, type_, *_ = line.split()
+        if f'/dev/{name}' == disk and type_ == 'disk':
+            break
+    else:
+        sys.stderr.write(f'No such disk {disk}.\n')
+        sys.exit(1)
+if RAID not in [None, 5]:
+    sys.stderr.write(f"RAID must be None or 5, not {RAID}")
+    sys.exit(1)
+if len(disks) > 1 and RAID is None:
+    sys.stderr.write(f"Can only install to one disk if not using RAID")
     sys.exit(1)
 
 # Get user password:
@@ -199,13 +220,40 @@ if not PASSWORD or getpass(f"Confirm password for {USERNAME}: ") != PASSWORD:
     sys.stderr.write("No password or unmatching password.\n")
     sys.exit(1)
 
+# We will be destroying any existing RAID arrays that use the disks:
+mdstat = getoutput('cat /proc/mdstat')
+md_devices = set()
+md_disks = set()
+for line in mdstat.splitlines():
+    for disk in disks:
+        if  disk.rsplit('/', 1)[-1] in line:
+            md_devices.add(line.split()[0])
+            md_disks.add(disk)
+
+if md_devices:
+    print()
+    print(mdstat)
+    print()
+
+if md_devices:
+    if not yn_choice(
+        "The output of 'cat /proc/mdstat' is shown above.\n"
+        + f"Some of the disks {DISKS} are in use by existing RAID arrays.\n"
+        + f"If you continue, the RAID arrays {md_devices} will be erased.\n"
+        + "Check carefully. "
+        f"Are you sure you want to completely erase the RAID arrays {md_devices}?",
+        default='n',
+    ):
+        sys.exit(1)
+
 print()
-_run(f'fdisk -l {DISK}')
+for disk in disks:
+    _run(f'fdisk -l {disk}')
 print()
 if not yn_choice(
-    f"The details of {DISK} are shown above.\n"
-    + "Check carefully it is the right disk, as it will be erased.\n"
-    f"Are you sure you want to completely erase {DISK}?",
+    f"The details of {DISKS} are shown above.\n"
+    + "Check carefully it is correct, as these disk(s) will be erased.\n"
+    f"Are you sure you want to completely erase {DISKS}?",
     default='n',
 ):
     sys.exit(1)
@@ -215,7 +263,7 @@ print('Ensuring /mnt does not have a mounted filesystem...')
 os.system('umount -R /mnt')
 print('Getting packages needed for installation...')
 # Sync the package database:
-_run('pacman -Syy')
+_run('pacman -Sy')
 _run('pacman -S --noconfirm python-pexpect reflector')
 import pexpect
 
@@ -229,54 +277,103 @@ run('set -e')
 run(f'loadkeys {KEYMAP}')
 run('timedatectl set-ntp true')
 
-# Partition disk:
-run(f'fdisk --wipe-partition always {DISK}', expect='Command')
-run('g', expect='Command')
-run('n', expect='Partition number')
-run('1', expect="First sector")
-run('', expect="Last sector")
-run('+512M', expect='Created a new partition')
-run('n', expect='Command')
-run('2', expect='First sector')
-run('', expect='Last sector')
-run('', expect='Created a new partition')
-run('t', expect='Partition number')
-run('1', expect='Partition type')
-run('1', expect='EFI System')
-run('t', expect='Partition number')
-run('2', expect='Partition type')
-run('24', expect='Linux root (x86-64)')
-run('w')
+# Stop any existing RAID arrays using the given disks:
+for md_device in md_devices:
+    run(f"mdadm --stop /dev/{md_device}")
+    time.sleep(.5)
 
-# Avoid a seeming race condition getting partitions too soon after making them:
-time.sleep(.1)
+# Wipe existing filesystems off the given disks:
+for disk in disks:
+    run(f'wipefs --all {disk}')
+    time.sleep(.5)
 
-# Get the partition names:
-partitions = getoutput(f'lsblk -l {DISK}').splitlines()[2:4]
-if len(partitions) != 2:
-    errorquit("Did not find expected number of partitions")
-for line in partitions:
-    partition = f'/dev/{line.split()[0]}'
-    if not partition.startswith(DISK):
-        errorquit(f"Unexpected partition name {partition}")
-    if partition.endswith('1'):
-        EFI_partition = partition
-    elif partition.endswith('2'):
-        root_partition = partition
+# Partition disks:
+for disk in disks:
+    run(f'fdisk --wipe-partition always {disk}', expect='Command')
+    
+    run('g', expect='Command') # GPT
+    run('n', expect='Partition number')
+    run('1', expect="First sector")
+    run('', expect="Last sector")
+    if UEFI:
+        run('+512M', expect='Created a new partition')
     else:
-        errorquit(f"Unexpected partition name {partition}")
+        run('+2M', expect='Created a new partition')
+    run('n', expect='Command')
+    run('2', expect='First sector')
+    run('', expect='Last sector')
+    run('', expect='Created a new partition')
+    run('t', expect='Partition number')
+    run('1', expect='Partition type')
+    if UEFI:
+        run('1', expect='EFI System')
+    else:
+        run('4', expect='BIOS boot')
+    run('t', expect='Partition number')
+    run('2', expect='Partition type')
+    if RAID is None:
+        run('24', expect='Linux root (x86-64)')
+    else:
+        run('29', expect='Linux RAID')
+    run('w')
+
+    # Avoid a seeming race condition getting partitions too soon after making them:
+    time.sleep(.5)
+
+    # Get the partition names:
+    partitions = getoutput(f'lsblk -l {disk}').splitlines()[2:4]
+    if len(partitions) != 2:
+        errorquit("Did not find expected number of partitions")
+    for line in partitions:
+        partition = f'/dev/{line.split()[0]}'
+        if not partition.startswith(disk):
+            errorquit(f"Unexpected partition name {partition}")
+        if partition.endswith('1'):
+            boot_partition = partition
+        elif partition.endswith('2'):
+            root_partition = partition
+        else:
+            errorquit(f"Unexpected partition name {partition}")
+
+def make_raid_array(number, level, disks, partnum):
+    run(
+        [
+            'mdadm',
+            '--create',
+            '--verbose',
+            f'--level={level}',
+            f'--raid-devices={len(disks)}',
+            f'--homehost={HOSTNAME}',
+            f'/dev/md{number}',
+        ]
+        + [f"{disk}{partnum}" for disk in disks]
+    )
+
+if RAID is not None:
+    if UEFI:
+        # UEFI partition is RAID 1. This way, the individual partitions are valid FAT32
+        # parititons in their own right, and can be read by UEFI firmware:
+        make_raid_array(number=0, level=1, disks=disks, partnum=1)
+        time.sleep(1)
+        make_raid_array(number=1, level=5, disks=disks, partnum=2)
+        boot_partition = '/dev/md0'
+        root_partition = '/dev/md1'
+    else:
+        # BIOS boot partitions, one per disk, are not RAIDed. GRUB will be installed to
+        # all of them.
+        make_raid_array(number=0, level=5, disks=disks, partnum=2)
+        root_partition = '/dev/md0'
 
 # Make filesystems:
-run(f'mkfs.fat -F32 {EFI_partition}')
-run(f'mkfs.ext4 {root_partition}', timeout=120)
+if UEFI:
+    run(f'yes | mkfs.fat -F32 {boot_partition}')
+run(f'yes | mkfs.ext4 {root_partition}', timeout=120)
 
 # Mount them:
 run(f'mount {root_partition} /mnt')
-run('mkdir /mnt/boot')
-run(f'mount {EFI_partition} /mnt/boot')
-
-# Backup original mirrorlist
-run('cp /etc/pacman.d/mirrorlist /var/tmp/mirrorlist.orig')
+if UEFI:
+    run('mkdir /mnt/boot')
+    run(f'mount {boot_partition} /mnt/boot')
 
 # Find good mirrors:
 run('reflector -l 50 --sort rate --save /etc/pacman.d/mirrorlist', timeout=120)
@@ -286,16 +383,13 @@ run('pacman -Syy', timeout=120)
 # Colour and overall progress:
 run("sed -i '/TotalDownload/s/^#//g' /etc/pacman.conf")
 run("sed -i '/Color/s/^#//g' /etc/pacman.conf")
-# We'll need hg after we leave the chroot
-run('pacman -S --noconfirm mercurial', timeout=None)
-run('pacstrap /mnt base base-devel', timeout=None)
+run('pacstrap /mnt base base-devel', timeout=600)
 
-# Copy original pacman mirror list, it will be saved to version control for posterity:
-run('cp /var/tmp/mirrorlist.orig /mnt/var/tmp/mirrorlist.orig')
+# Copy the mirrorlist:
+run('cp /etc/pacman.d/mirrorlist /mnt/etc/pacman.d/mirrorlist')
 
-# Save the generated fstab entries to a tempfile, we will append them to fstab after
-# chrooting into the new system.
-run('genfstab -U /mnt > /mnt/var/tmp/fstab_entries')
+# Add fstab entries:
+run('genfstab -U /mnt >> /mnt/etc/fstab')
 
 # Basic system has been installed. Chroot into the new system
 shell.sendline('arch-chroot /mnt')
@@ -304,92 +398,28 @@ run('set -e')
 
 INITIAL_PACKAGES = [
     'grub',
-    'efibootmgr',
-    'sudo',
-    'mercurial',
-    'git',
-    'gnome',
-    'gnome-extra',
-    'xdg-utils',
-    'ttf-ubuntu-font-family',
-    'noto-fonts-emoji',
-    'ttf-linux-libertine',
-    'ttf-dejavu',
-    'ttf-liberation',
-    'powertop',
-    'xterm',
-    'tint2',
-    'gnucash',
-    'anki',
-    'meld',
-    'firefox',
-    'python2-nautilus',  # needed for tortoisehg extension
-    'python2-pygments',  # needed for tortoisehg syntax highlighting
-    'go',  # required by yay
+    'go',
+    'linux-firmware',
+    'openssh',
+    'nano',
+    'devtools',
+    # Specific to server:
+    'linux-lts',
+    'linux-lts-headers',
+    'broadcom-wl-dkms',
+    'mdadm',
+    'netctl',
+    'wpa_supplicant'
+    'dialog',
+    'dhcpcd',
 ]
 
-# Backup the unmodified pacman.conf:
-run('cp /etc/pacman.conf /var/tmp/pacman.conf.orig')
+if UEFI:
+    INITIAL_PACKAGES.append('efibootmgr')
+
 # Apply colour and progress config changes to pacman.conf:
 run("sed -i '/TotalDownload/s/^#//g' /etc/pacman.conf")
 run("sed -i '/Color/s/^#//g' /etc/pacman.conf")
-
-# Install some more packages:
-run('pacman -Syy', timeout=120)
-run(f'pacman -S --noconfirm {" ".join(INITIAL_PACKAGES)}', timeout=None)
-
-# Replace mirrorlist with the default one, so it can be added to version control for
-# posterity. Back up the good one so it can be added back in a moment:
-run('mv /etc/pacman.d/mirrorlist /var/tmp/mirrorlist.new')
-run('mv /var/tmp/mirrorlist.orig /etc/pacman.d/mirrorlist')
-
-# Replace pacman.conf with the default for the same reason:
-run('mv /etc/pacman.conf /var/tmp/pacman.conf.new')
-run('mv /var/tmp/pacman.conf.orig /etc/pacman.conf')
-
-# Before we start configuring anything, set up a version control repo in /etc/ to track
-# changes to config files we're about to create or modify.
-run('hg init /etc')
-
-# List of already-existing config files to put under version control:
-ORIG_FILES = [
-    '/etc/fstab',
-    '/etc/pacman.d/mirrorlist',
-    '/etc/pacman.conf',
-    '/etc/localtime',
-    '/etc/hosts',
-    '/etc/locale.gen',
-    '/etc/default/grub',
-    '/etc/sudoers',
-    '/etc/gdm/custom.conf',
-    '/etc/systemd/system',  # Put this whole directory under version control
-]
-
-for path in ORIG_FILES:
-    # Add to version control
-    if os.path.isdir(path):
-        run(f'hg add {path}/*')
-    else:
-        run(f'hg add {path}')
-
-# List of not-yet-existing config files to be put under version control
-NEW_FILES = ['/etc/hostname', '/etc/vconsole.conf', '/etc/adjtime']
-
-# Commit original files:
-run('hg commit -u root -m "initial default configuration" -R /etc')
-
-# Make branch for our changes
-run('hg branch custom -R /etc')
-
-# Our optimised mirrrorlist:
-run('mv /var/tmp/mirrorlist.new /etc/pacman.d/mirrorlist')
-
-# Our fstab entries:
-run('cat /var/tmp/fstab_entries >> /etc/fstab')
-run('rm /var/tmp/fstab_entries')
-
-# Our pacman config changes:
-run('mv /var/tmp/pacman.conf.new /etc/pacman.conf')
 
 # Our hostfile:
 shell.sendline('echo "127.0.0.1  localhost')
@@ -416,24 +446,11 @@ run('locale-gen')
 # Our LANG variable:
 run(f'echo LANG={LOCALE} > /etc/locale.conf')
 
-# Install and configure grub bootloader:
-run(
-    'grub-install --target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB',
-    timeout=120,
-)
-run('grub-mkconfig -o /boot/grub/grub.cfg', timeout=120)
-
 if VIRTUALBOX:
     # if in a virtualbox, workaround for bug where virtualbox forgets EFI variables:
     run('mkdir -p /boot/EFI/BOOT')
     run('cp /boot/EFI/GRUB/grubx64.efi /boot/EFI/BOOT/BOOTX64.EFI')
 
-# Disable wayland in GDM:
-run(f"sed -i '/WaylandEnable=false/s/^#//g' /etc/gdm/custom.conf")
-
-# Enable gdm and networkmanager systemd units:
-run('systemctl enable gdm.service')
-run('systemctl enable NetworkManager.service')
 
 # Create user account and set password
 run(f'useradd -m -G wheel,storage {USERNAME}')
@@ -452,45 +469,54 @@ run('passwd -l root')
 # start the service immediately, which doesn't work within the chroot:
 run('systemctl enable systemd-timesyncd.service')
 
-# Commit all our custom configuration
-for path in NEW_FILES:
-    run(f'hg add {path}')
-for path in ORIG_FILES:
-    if os.path.isdir(path):
-        # Add any new files under the directory:
-        run(f'hg add {path}/*')
-run('hg commit -u root -m "Initial custom configuration" -R /etc')
-
-
-# Ok, onto some more custom stuff.
-
-# Set up sublime text repo:
-run('curl -o /tmp/sublimehq-pub.gpg https://download.sublimetext.com/sublimehq-pub.gpg')
-run('pacman-key --add /tmp/sublimehq-pub.gpg')
-run('pacman-key --lsign-key 8A8F901A')
-SUBLIME_SERVER = 'https://download.sublimetext.com/arch/dev/x86_64'
-run(f'echo -e "\n[sublime-text]\nServer = {SUBLIME_SERVER}" >> /etc/pacman.conf')
-
-# Commit that change to pacman.conf:
-run('hg commit -u root -m "Add sublime text server" -R /etc')
-
-# Update pacman db and install sublime text
+# Install initial packages:
 run('pacman -Syy', timeout=120)
-run('pacman -S --noconfirm sublime-text', timeout=None)
+run(f'pacman -S --noconfirm {" ".join(INITIAL_PACKAGES)}', timeout=600)
+
+# Install and configure grub bootloader:
+if UEFI:
+    run(
+        'grub-install --verbose '
+        + '--target=x86_64-efi --efi-directory=/boot --bootloader-id=GRUB',
+        timeout=600,
+    )
+else:
+    for disk in disks:
+        run(f'grub-install --verbose --target=i386-pc {disk}', timeout=600)
+
+if RAID is not None:
+    # Add entries to /etc/mdadm.conf:
+    run('mdadm --detail --scan >> /etc/mdadm.conf')
+
+    # Edit mkinitcpio.conf and regenerate initramfs
+    print("# Editing /etc/mkinitcpio.conf to insert mdadm_udev in HOOKS")
+    PATTERN = '\nHOOKS=(base udev autodetect modconf block'
+    NEW_TEXT = ' mdadm_udev'
+    # /mnt prefix since the script where this code is running is not in the chroot:
+    with open('/mnt/etc/mkinitcpio.conf', 'r+') as f:
+        text = f.read()
+        loc = text.find(PATTERN) + len(PATTERN)
+        f.seek(0)
+        f.truncate()
+        f.write(text[:loc] + NEW_TEXT + text[loc:])
+
+    run('mkinitcpio -p linux-lts', timeout=600)
+
+run('grub-mkconfig -o /boot/grub/grub.cfg', timeout=600)
 
 # Install the AUR helper 'yay'. To build it, switch to user since makepkg can't be run
 # as root:
 shell.sendline(f'su {USERNAME}')
 root_prompt = PROMPT
 PROMPT = set_ps1_and_get_prompt()
-run(f'git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=120)
-run(f'cd /tmp/yay && makepkg && cd -', timeout=None)
+run(f'git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=600)
+run(f'cd /tmp/yay && makepkg && cd -', timeout=600)
 # Back to root:
 PROMPT = root_prompt
 shell.sendline('exit')
 
 # Install with pacman:
-run(f'pacman -U --noconfirm /tmp/yay/yay-*.pkg.tar.xz', timeout=None)
+run(f'pacman -U --noconfirm /tmp/yay/yay-*.pkg.*', timeout=600)
 
 # Quit user session:
 run('exit', expect='#')
@@ -502,55 +528,9 @@ run('exit', expect='#')
 shell.sendeof()
 shell.expect(pexpect.EOF)
 
-# Add the install log to the mercurial repository. WIll commit after
-# this script exits ()
 print('# End of the part of the install script that can be logged.')
 print('# After this, we process the log file to remove ANSI escape sequences,')
-print('# commit it and this script to the repository in /etc/, unmount and reboot.')
+print('# copy it and this script to /etc/, unmount and reboot.')
 
 # This script now ends, and its parent process (the little snippet of code at the top of
 # this file) will do the final cleanup.
-
-
-# Notes of other things to be configured/installed later:
-#
-# Install from AUR:
-# 'tortoisehg',
-# 'yaru-icon-theme',
-# 'yaru-gnome-shell-theme',
-# 'yaru-gtk-theme',
-# 'yaru-sound-theme',
-# 'spotify',
-# 'google-chrome',
-#
-#
-
-# run settings, set all the settings:
-# Displays:
-# Night light on
-# Keyboard:
-#    volume up: ctrl up
-#    volume down: ctrl down
-#    play/pause: ctrl enter
-#    gnome-terminal: ctrl alt t
-# Mouse and touchpad:
-#    natural scrolling off
-#    tap to click on
-
-# run gnome tweak tool, set all the settings.
-# Extensions -> enable user themes,
-#     then restart gnome-shell with alt-f2 r and restart tweak tool
-# appearance -> themes -> yaru for all
-# extensions -> alternatetab
-# fonts ->
-#    ubuntu regular 11, ubuntu regular 11, ubuntu mono regular 13, ubuntu medium 11
-# antialising -> subpixel
-# keyboard and mouse -> compose key -> right alt
-#   additional layout options -> capslock -> capslock is additional escape
-# top bar -> battery percetage, clock -> weekday and date
-# window titlebars -> buttons -> maximise, minimise
-# windows -> don't attach modal dialogs, center new windows
-# workspaces -> static, workspaces span displays
-
-# Gnome shell extensions:
-# system monitor
