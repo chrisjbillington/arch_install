@@ -18,10 +18,10 @@
 # =============
 #
 # Username
-USERNAME = 'bilbo'
+USERNAME = 'nuc'
 #
 # Computer hostname
-HOSTNAME = 'bilbo-server'
+HOSTNAME = 'nuc'
 #
 # Keymap. To see options, do ls /usr/share/kbd/keymaps/**/*.map.gz
 KEYMAP = 'us'
@@ -34,15 +34,15 @@ LOCALTIME = 'Australia/Melbourne'
 #
 # Disk(s) to install to. Check disks with 'fdisk -l' or 'lsblk'. Comma-separated list
 # for multiple disks, used for RAID
-DISKS = '/dev/sda,/dev/sdb,/dev/sdc,/dev/sdd'
+DISKS = '/dev/nvme0n1'
 #
 # Raid scheme, None or 5 only supported. If 5, DISKS must be a comma-separated list of
 # identically-sized disks.
-RAID = 5
+RAID = None
 #
 # Whether to install as BIOS or UEFI - generally you want UEFI = True unless it's an old
 # system that doesn't support UEFI. Will use  GPT partition table in either case.
-UEFI = False
+UEFI = True
 #
 # Is the install in a virtualbox?
 VIRTUALBOX = False
@@ -155,7 +155,7 @@ def yn_choice(message, default='y'):
         sys.exit(1)
 
 
-def set_ps1_and_get_prompt():
+def set_ps1():
     shell.expect_exact(['#', '$'])  # Wait for prompt
     # Set PS1 and get prompt:
     RED = r"\[\e[1;31m\]"
@@ -163,7 +163,6 @@ def set_ps1_and_get_prompt():
     shell.sendline(fr'export PS1="{RED}$PS1{NORMAL}"')
     shell.expect_exact('$')  # Skip over the $ in $PS1
     shell.expect_exact(['# ', '$ '])  # Wait for prompt
-    return (shell.before + shell.after).split(b'\n')[-1]
 
 
 _run('clear')
@@ -261,9 +260,13 @@ if not yn_choice(
 print('Ensuring /mnt does not have a mounted filesystem...')
 os.system('umount -R /mnt')
 print('Getting packages needed for installation...')
-# Sync the package database:
-_run('pacman -Sy')
-_run('pacman -S --noconfirm python-pexpect reflector')
+# This is done with pip instead of pacman, because the live environment may not have the
+# same Python version as the python-pexpect package in the repositories, and we do not
+# want to run a full upgrade in the live environment. So we clobber the live session
+# just to get the pexpect package.
+_run('python -m ensurepip')
+_run('python -m pip install pexpect')
+# _run('pacman -S --noconfirm python-pexpect') # This did not work due to partial upgrade
 import pexpect
 
 ts = os.get_terminal_size()
@@ -271,7 +274,8 @@ shell = pexpect.spawn('bash', dimensions=(ts.lines, ts.columns))
 shell.logfile_read = sys.stdout.buffer
 
 time.sleep(.1)
-PROMPT = set_ps1_and_get_prompt()
+set_ps1()
+PROMPT = "root@archiso"
 run('set -e')
 run(f'loadkeys {KEYMAP}')
 run('timedatectl set-ntp true')
@@ -311,7 +315,7 @@ for disk in disks:
     run('t', expect='Partition number')
     run('2', expect='Partition type')
     if RAID is None:
-        run('24', expect='Linux root (x86-64)')
+        run('23', expect='Linux root (x86-64)')
     else:
         run('29', expect='Linux RAID')
     run('w')
@@ -392,7 +396,7 @@ run('genfstab -U /mnt >> /mnt/etc/fstab')
 
 # Basic system has been installed. Chroot into the new system
 shell.sendline('arch-chroot /mnt')
-PROMPT = set_ps1_and_get_prompt()
+set_ps1()
 run('set -e')
 
 INITIAL_PACKAGES = [
@@ -402,15 +406,7 @@ INITIAL_PACKAGES = [
     'openssh',
     'nano',
     'devtools',
-    # Specific to server:
-    'linux-lts',
-    'linux-lts-headers',
-    'broadcom-wl-dkms',
-    'mdadm',
-    'netctl',
-    'wpa_supplicant'
-    'dialog',
-    'dhcpcd',
+    'linux',
 ]
 
 if UEFI:
@@ -507,7 +503,8 @@ run('grub-mkconfig -o /boot/grub/grub.cfg', timeout=600)
 # as root:
 shell.sendline(f'su {USERNAME}')
 root_prompt = PROMPT
-PROMPT = set_ps1_and_get_prompt()
+set_ps1()
+PROMPT = f"{USERNAME}@archiso"
 run(f'git clone https://aur.archlinux.org/yay.git /tmp/yay', timeout=600)
 run(f'cd /tmp/yay && makepkg && cd -', timeout=600)
 # Back to root:
